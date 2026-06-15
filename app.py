@@ -1,22 +1,27 @@
 import os
 import pickle
+import numpy as np
 import pandas as pd
 from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# 1. Safely load your decision tree pickle file
+# 1. Load the Decision Tree model safely
 MODEL_PATH = "tree_pkl.pkl"
+model = None
+model_features = []
+
 if os.path.exists(MODEL_PATH):
     try:
         with open(MODEL_PATH, "rb") as f:
             model = pickle.load(f)
-    except Exception:
-        model = None
-else:
-    model = None
+            # Try to automatically extract the features the model was trained on
+            if hasattr(model, "feature_names_in_"):
+                model_features = list(model.feature_names_in_)
+    except Exception as e:
+        print(f"Error loading model: {e}")
 
-# Dropdown options matching the model's categorical fields
+# Pre-defined options for the dropdowns
 CATEGORICAL_OPTIONS = {
     "Gender": ["Male", "Female", "Other"],
     "Stage": ["Stage I", "Stage II", "Stage III", "Stage IV"],
@@ -26,23 +31,23 @@ CATEGORICAL_OPTIONS = {
     "City": ["Los Angeles", "New York City", "Houston", "Miami", "Chicago", "Other"]
 }
 
-# 2. HTML template embedded directly into Python as a string
+# 2. Fully Embedded UI Template (HTML + Tailwind CSS + JavaScript)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oncology Survival Prognosis Analytics</title>
+    <title>Oncology Survival Prognosis Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
         .glass-panel {
-            background: rgba(255, 255, 255, 0.45);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
         }
     </style>
 </head>
@@ -57,7 +62,7 @@ HTML_TEMPLATE = """
             <p class="text-slate-600 mt-1 font-medium">Predictive Clinical Decision Tree Classification Engine</p>
             {% if not model_loaded %}
             <div class="mt-3 p-3 bg-rose-100 border border-rose-300 rounded-xl text-rose-800 text-sm font-semibold">
-                ⚠️ Danger: 'tree_pkl.pkl' load initialization failure. Review local configuration pathing.
+                ⚠️ System Error: 'tree_pkl.pkl' file could not be loaded. Please ensure it is uploaded alongside this script.
             </div>
             {% endif %}
         </div>
@@ -68,33 +73,33 @@ HTML_TEMPLATE = """
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Age Profile (Years)</label>
                     <input type="number" name="Age" min="1" max="120" value="55" required
-                        class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                        class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Biological Gender</label>
-                    <select name="Gender" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="Gender" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['Gender'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Cancer Site / Type</label>
-                    <select name="Cancer_Type" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="Cancer_Type" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['Cancer_Type'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Staging Criteria</label>
-                    <select name="Stage" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="Stage" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['Stage'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Primary Treatment Protocol</label>
-                    <select name="Treatment_Type" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="Treatment_Type" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['Treatment_Type'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
@@ -102,19 +107,19 @@ HTML_TEMPLATE = """
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Observed Survival Timeline (Months)</label>
                     <input type="number" name="Survival_Months" min="0" max="600" value="24" required
-                        class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                        class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Geographic State</label>
-                    <select name="State" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="State" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['State'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
 
                 <div class="flex flex-col">
                     <label class="text-sm font-bold text-slate-700 mb-2">Metropolitan City</label>
-                    <select name="City" class="px-4 py-3 bg-white/80 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
+                    <select name="City" class="px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all">
                         {% for item in options['City'] %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                     </select>
                 </div>
@@ -123,14 +128,14 @@ HTML_TEMPLATE = """
 
             <div class="pt-4">
                 <button type="submit" class="w-full bg-indigo-950 text-white font-bold py-4 px-6 rounded-xl hover:bg-indigo-900 shadow-lg active:scale-[0.99] transition-all tracking-wide">
-                    EXECUTE MODEL CLASSIFICATION
+                    RUN PREDICTIVE ASSESSMENT
                 </button>
             </div>
         </form>
 
-        <div id="resultBox" class="hidden mt-8 p-6 rounded-2xl transition-all border animate-fade-in">
+        <div id="resultBox" class="hidden mt-8 p-6 rounded-2xl transition-all border">
             <div class="flex flex-col items-center text-center space-y-2">
-                <span class="text-xs uppercase font-extrabold tracking-widest text-slate-500">Evaluation Categorization</span>
+                <span class="text-xs uppercase font-extrabold tracking-widest text-slate-500">Analysis Classification Outcome</span>
                 <div id="predictionResult" class="text-4xl font-black">N/A</div>
                 <p id="confidenceResult" class="text-sm font-semibold text-slate-600 mt-1"></p>
             </div>
@@ -162,12 +167,12 @@ HTML_TEMPLATE = """
                     }
                     
                     predOut.innerText = data.prediction;
-                    confOut.innerText = "Distribution Metrics — " + data.confidence;
+                    confOut.innerText = data.confidence !== "N/A" ? "Confidence metrics: " + data.confidence : "";
                 } else {
-                    alert("Analysis processing anomaly: " + data.error);
+                    alert("Model structural mismatch error:\\n" + data.error);
                 }
             } catch (err) {
-                alert("Server request routing error occurred.");
+                alert("Network communication failure with the backend server.");
             }
         });
     </script>
@@ -175,41 +180,59 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# 3. Main Route — Renders the embedded HTML string
 @app.route("/", methods=["GET"])
 def home():
     return render_template_string(HTML_TEMPLATE, options=CATEGORICAL_OPTIONS, model_loaded=(model is not None))
 
-# 4. API Endpoint — Handles form submissions asynchronously
 @app.route("/predict", methods=["POST"])
 def predict():
     if not model:
-        return jsonify({"success": False, "error": "Model file 'tree_pkl.pkl' missing on server."}), 500
+        return jsonify({"success": False, "error": "Model file 'tree_pkl.pkl' is missing or failed to initialize."}), 500
     
     try:
-        input_data = {
-            "Age": [float(request.form.get("Age", 50))],
-            "Gender": [request.form.get("Gender")],
-            "City": [request.form.get("City")],
-            "State": [request.form.get("State")],
-            "Cancer_Type": [request.form.get("Cancer_Type")],
-            "Stage": [request.form.get("Stage")],
-            "Treatment_Type": [request.form.get("Treatment_Type")],
-            "Survival_Months": [float(request.form.get("Survival_Months", 12))]
+        # 1. Capture incoming form parameters
+        raw_input = {
+            "Age": float(request.form.get("Age", 55)),
+            "Gender": request.form.get("Gender"),
+            "City": request.form.get("City"),
+            "State": request.form.get("State"),
+            "Cancer_Type": request.form.get("Cancer_Type"),
+            "Stage": request.form.get("Stage"),
+            "Treatment_Type": request.form.get("Treatment_Type"),
+            "Survival_Months": float(request.form.get("Survival_Months", 24))
         }
         
-        # Format exact columns for the Scikit-learn tree structure
-        df = pd.DataFrame(input_data)
-        
-        raw_prediction = model.predict(df)[0]
+        # 2. Build the precise DataFrame 
+        df_input = pd.DataFrame([raw_input])
+
+        # 3. ADVANCED ALIGNMENT CHECK: If the model uses One-Hot Encoding features directly
+        if model_features:
+            # Recreate dummy structure matching the original training frame
+            df_encoded = pd.get_dummies(df_input)
+            # Fill out missing structural columns with 0 values
+            for col in model_features:
+                if col not in df_encoded.columns:
+                    df_encoded[col] = 0
+            # Ensure the feature column layout matches the expected tree structure exactly
+            final_df = df_encoded[model_features]
+        else:
+            # Fallback if specific inner structural feature array properties aren't visible
+            final_df = df_input
+
+        # 4. Generate Classification Output
+        raw_prediction = model.predict(final_df)[0]
         prediction_label = str(raw_prediction)
         
+        # Calculate prediction metrics if model supports probability outputs
         probability_text = "N/A"
         if hasattr(model, "predict_proba"):
-            probs = model.predict_proba(df)[0]
-            classes = model.classes_
-            prob_details = [f"{cls}: {prob*100:.1f}%" for cls, prob in zip(classes, probs)]
-            probability_text = " | ".join(prob_details)
+            try:
+                probs = model.predict_proba(final_df)[0]
+                classes = model.classes_
+                prob_details = [f"{cls}: {prob*100:.1f}%" for cls, prob in zip(classes, probs)]
+                probability_text = " | ".join(prob_details)
+            except Exception:
+                pass
             
         return jsonify({
             "success": True,
@@ -218,7 +241,7 @@ def predict():
         })
         
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": f"{str(e)} - Check that features match exactly."}), 400
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
